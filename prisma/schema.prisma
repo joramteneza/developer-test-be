@@ -1,0 +1,16 @@
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")  // MongoDB connection string in your .env file
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Goal {
+  id          String @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String
+  date        DateTime
+  color       String
+}
