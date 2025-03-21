@@ -7,20 +7,31 @@ const prisma = new PrismaClient();
 
 // Define your GraphQL schema
 const typeDefs = gql`
+  type User {
+    id: ID!
+    username: String!
+    email: String!
+    description: String!
+    goals: [Goal]  # Link goals to user
+  }
+
   type Goal {
     id: ID!
     name: String!
     description: String!
     date: String!
     color: String!
+    userId: String!
   }
 
   type Query {
-    goals: [Goal]
+    users: [User]  # Query to get all users along with their goals
+    goals(userId: String!): [Goal]  # Query to get goals for a specific user
   }
 
   type Mutation {
-    createGoals(goals: [GoalInput!]!): [Goal]
+    createUser(username: String!, email: String!): User
+    createGoals(goals: [GoalInput!]!, userId: String!): [Goal]
   }
 
   input GoalInput {
@@ -31,16 +42,41 @@ const typeDefs = gql`
   }
 `;
 
+
 // Define resolvers
 const resolvers = {
   Query: {
-    goals: async () => {
-      return await prisma.goal.findMany();
+    users: async () => {
+      // Retrieve all users from the database
+      return await prisma.user.findMany({
+        include: {
+          goals: true, // Include associated goals with each user
+        },
+      });
+    },
+    goals: async (_: any, { userId }: { userId: string }) => {
+      // Fetch goals associated with a user
+      return await prisma.goal.findMany({
+        where: { userId: userId },
+      }).then(goals => goals.map(goal => ({
+        ...goal,
+        date: goal.date.toISOString() // Format date
+      })));
     },
   },
   Mutation: {
-    createGoals: async (_: any, { goals }: { goals: Array<{ name: string, description: string, date: string, color: string }> }) => {
-      // Use Promise.all to create multiple goals and return them
+    createUser: async (_: any, { username, email }: { username: string, email: string }) => {
+      // Create a new user in the database
+      return await prisma.user.create({
+        data: {
+          username,
+          email,
+        },
+      });
+    },
+
+    createGoals: async (_: any, { goals, userId }: { goals: Array<{ name: string, description: string, date: string, color: string }>, userId: string }) => {
+      // Create multiple goals for a user
       const createdGoals = await Promise.all(
         goals.map((goal) =>
           prisma.goal.create({
@@ -49,6 +85,7 @@ const resolvers = {
               description: goal.description,
               date: new Date(goal.date),
               color: goal.color,
+              userId: userId,  // Associate the goal with the user
             },
           })
         )
@@ -70,7 +107,7 @@ const server = new ApolloServer({ typeDefs, resolvers });
 // Start Apollo Server asynchronously
 async function startServer() {
   await server.start(); // Await server start
-  server.applyMiddleware({ app }); // Apply Apollo Server middleware
+  server.applyMiddleware({ app: app as any }); // Cast `app` as `any`
 
   // Start the Express app
   app.listen(4000, () => {

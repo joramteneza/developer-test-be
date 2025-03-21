@@ -19,20 +19,31 @@ const client_1 = require("@prisma/client");
 const prisma = new client_1.PrismaClient();
 // Define your GraphQL schema
 const typeDefs = (0, apollo_server_express_1.gql) `
+  type User {
+    id: ID!
+    username: String!
+    email: String!
+    description: String!
+    goals: [Goal]  # Link goals to user
+  }
+
   type Goal {
     id: ID!
     name: String!
     description: String!
     date: String!
     color: String!
+    userId: String!
   }
 
   type Query {
-    goals: [Goal]
+    users: [User]  # Query to get all users along with their goals
+    goals(userId: String!): [Goal]  # Query to get goals for a specific user
   }
 
   type Mutation {
-    createGoals(goals: [GoalInput!]!): [Goal]
+    createUser(username: String!, email: String!): User
+    createGoals(goals: [GoalInput!]!, userId: String!): [Goal]
   }
 
   input GoalInput {
@@ -45,19 +56,41 @@ const typeDefs = (0, apollo_server_express_1.gql) `
 // Define resolvers
 const resolvers = {
     Query: {
-        goals: () => __awaiter(void 0, void 0, void 0, function* () {
-            return yield prisma.goal.findMany();
+        users: () => __awaiter(void 0, void 0, void 0, function* () {
+            // Retrieve all users from the database
+            return yield prisma.user.findMany({
+                include: {
+                    goals: true, // Include associated goals with each user
+                },
+            });
+        }),
+        goals: (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { userId }) {
+            // Fetch goals associated with a user
+            return yield prisma.goal.findMany({
+                where: { userId: userId },
+            }).then(goals => goals.map(goal => (Object.assign(Object.assign({}, goal), { date: goal.date.toISOString() // Format date
+             }))));
         }),
     },
     Mutation: {
-        createGoals: (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { goals }) {
-            // Use Promise.all to create multiple goals and return them
+        createUser: (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { username, email }) {
+            // Create a new user in the database
+            return yield prisma.user.create({
+                data: {
+                    username,
+                    email,
+                },
+            });
+        }),
+        createGoals: (_1, _a) => __awaiter(void 0, [_1, _a], void 0, function* (_, { goals, userId }) {
+            // Create multiple goals for a user
             const createdGoals = yield Promise.all(goals.map((goal) => prisma.goal.create({
                 data: {
                     name: goal.name,
                     description: goal.description,
                     date: new Date(goal.date),
                     color: goal.color,
+                    userId: userId, // Associate the goal with the user
                 },
             })));
             return createdGoals;
@@ -74,7 +107,7 @@ const server = new apollo_server_express_1.ApolloServer({ typeDefs, resolvers })
 function startServer() {
     return __awaiter(this, void 0, void 0, function* () {
         yield server.start(); // Await server start
-        server.applyMiddleware({ app }); // Apply Apollo Server middleware
+        server.applyMiddleware({ app: app }); // Cast `app` as `any`
         // Start the Express app
         app.listen(4000, () => {
             console.log('Backend running on http://localhost:4000/graphql');
